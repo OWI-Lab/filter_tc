@@ -30,10 +30,14 @@ class ParticleFilter:
         self.q_process_noise = q_process_noise if q_process_noise is not None else np.array([0.1, 0.1])
         self.scale = scale
         self.loc = loc
-        self.particles = np.zeros((self.num_particles, 2))
+        self.particles = np.zeros((self.num_particles, 2)) # TODO: @MaxWeil Why two, mean and std???
         self.weights = np.ones(self.num_particles) / self.num_particles
         #self.expon_distr = sp.stats.expon(-0.1, self.r_measurement_noise)
-        self.expon_distr = sp.stats.gamma(1 - self.loc/self.r_measurement_noise, scale=self.r_measurement_noise, loc=self.loc)
+        self.expon_distr = sp.stats.gamma(
+            1 - self.loc/self.r_measurement_noise,
+            scale=self.r_measurement_noise,
+            loc=self.loc
+        )
 
     def create_gaussian_particles(
         self,
@@ -118,14 +122,16 @@ class ParticleFilter:
         input: np.ndarray = np.array([]),
         loading: str = 'tension'
         ) -> np.ndarray:
-        """Filter the data using the particle filter.
+        """
+        Filter the data using the particle filter.
+
         """
         self.predictions = np.zeros(len(measurements))
         mean = np.array([measurements[0], 0])
-        std = np.array([0.1, 0.1])
+        std = np.array([0.1, 0.1]) # TODO: @MaxWeil where does this come from, is it a setting?
         self.create_gaussian_particles(mean, std)
         for i, measurement in enumerate(measurements):
-            self.predict(input[:, i])
+            self.predict(input[:,i])
             #print(self.particles, self.weights)
             self.update(measurement, loading=loading)
             #print(self.particles, self.weights)
@@ -154,7 +160,7 @@ class ParticleFilter:
         p.strip_dirs().sort_stats('cumulative').print_stats(10)
         p.strip_dirs().sort_stats('time').print_stats(10)
 
-
+# TODO refactor this to a regular class, the dataclass is not really suited for this.
 @dataclass
 class ParticleFilter_GPT:
     """
