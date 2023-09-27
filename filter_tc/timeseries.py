@@ -17,6 +17,9 @@ def temp_comp_pf(measurements: dict,
                  ):
     """
     Process
+
+    NOTE: all input data should be presented in a SEP005 compliant
+
     Args:
         measurements:
         inputs:

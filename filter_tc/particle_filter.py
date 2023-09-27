@@ -5,12 +5,136 @@ Source: https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/mas
 -------------------------------------------------------------------------
 Author: Maximillian Weil
 """
+import datetime
 from dataclasses import dataclass, field
-from typing import List, Tuple
-import scipy as sp
+from typing import List, Tuple, Union
+import scipy as sp # This is a HEAVY dependency, if we can loose it in the future would be nice
 import numpy as np
 import cProfile
 import pstats
+
+from filter_tc.utils import preprocess_measurements, preprocess_inputs
+
+
+class ParticleFilterBank(list):
+    """
+    The ParticleFilterBank class manages all particle filters associated with a set of measurements
+    """
+    def __getitem__(self, item):
+        if isinstance(item, slice):
+            result = list.__getitem__(self, item)
+            return ParticleFilterBank(result)
+        elif isinstance(item, int):
+            result = list.__getitem__(self, item)
+            return result
+        elif isinstance(item, str):
+            for pf in self:
+                if pf.name == item:
+                    return pf
+
+            raise ValueError(f'No particle filter with name "{item}" in {str(self)}')
+
+
+    @classmethod
+    def from_sep005(cls, measurements:Union[dict, List[dict]], num_particles=100, r_measurement_noise=0.1, q_process_noise=None, scale=1):
+        """
+        Initialize a set of particle filters from SEP005 compliant measurements
+
+        Args:
+            measurements: All measurements collected
+        Returns:
+
+        """
+
+        measurements = preprocess_measurements(measurements)
+
+        # In all following code we assume that measurements is a list of 1D measurement
+        particle_filters = []
+        for measurement in measurements:
+            # Maybe one day you have
+            pf = ParticleFilter(
+                num_particles,
+                r_measurement_noise,
+                q_process_noise,
+                scale,
+                name=measurement['name']
+            )
+            if 'start_timestamp' in measurement:
+                pf.timestamp = datetime.datetime(measurement['start_timestamp'])
+
+            mean = np.array([measurement['data'][0], 0]) # From initial value
+            std = np.array([0.1, 0.1])  # TODO: @MaxWeil where does this come from, is it a setting?
+            pf.create_gaussian_particles(mean, std)
+
+            # Add to the list of particle filters
+            particle_filters.append(pf)
+
+
+        return cls(particle_filters)
+
+    @classmethod
+    def from_states(cls, collected_states:List[dict]):
+        """
+        This function creates a filterbank from a previous filter state (e.g. as stored from 'export_states')
+        Returns:
+
+        """
+        # TODO load the previous state (e.g. a list of dictionaries?)
+
+        particle_filters = []
+        for state in collected_states:
+            pf = ParticleFilter(**state) # Using the dict as the input for the particle filters
+            particle_filters.append(pf)
+
+        return cls(particle_filters)
+
+
+    def export_states(self):
+        """
+        Export the state of every ParticleFilter in the class, e.g. to be stored somewhere
+
+        Returns:
+
+        """
+        collected_states = []
+        for pf in self:
+            collected_states.append(vars(pf))
+
+        return collected_states
+
+    def filter(self, measurements:Union[dict, List[dict]], input:Union[dict, List[dict]]):
+
+        measurements = preprocess_measurements(measurements)
+        input = preprocess_inputs(input)
+
+        # Particle filter takes in the temperature and the delta_Temperature
+        filter_inputs = np.vstack(
+            [
+                input['data'],
+                np.insert(np.diff(input['data']), 0, 0)  # Add a zero to the start of the sample
+            ]
+        )
+
+        filter_outputs = []
+        for measurement in measurements:
+            pf = self[measurement['name']]
+            filtered = pf.filter(
+                measurement['data'],
+                filter_inputs
+            )
+            filtered_data = measurement.copy()
+            filtered_data['data'] = filtered
+            filtered_data['name'] = 'filtered_' + measurement['name']
+
+            if pf.timestamp:
+                ## Update the particle filter timestamp to the latest sample
+                pf.timestamp =  measurement['start_timestamp'] + measurement['fs']*len(measurement['data'])
+
+            filter_outputs.append(filtered_data)
+
+        return filter_outputs
+
+
 
 class ParticleFilter:
     """
@@ -24,7 +148,7 @@ class ParticleFilter:
     loc (float): Location value.
     predictions (np.ndarray): Predictions.
     """
-    def __init__(self, num_particles, r_measurement_noise=0.1, q_process_noise=None, scale=1, loc=-0.1):
+    def __init__(self, num_particles=100, r_measurement_noise=0.1, q_process_noise=None, scale=1, loc:float=-0.1, name:Union[str,None]=None, timestamp:Union[datetime.datetime,None]=None):
         self.num_particles = num_particles
         self.r_measurement_noise = r_measurement_noise
         self.q_process_noise = q_process_noise if q_process_noise is not None else np.array([0.1, 0.1])
@@ -39,12 +163,17 @@ class ParticleFilter:
             loc=self.loc
         )
 
+        # Additional properties for administration
+        self.name = name
+        self.timestamp = timestamp # Timestamp of the final state of the particle filter. So basically we know if we can append another one.
+
     def create_gaussian_particles(
         self,
         mean: np.ndarray,
         std: np.ndarray,
         ) -> None:
         self.particles = np.empty((self.num_particles, 2))
+
         self.particles[:,0] = \
             mean[0] + (np.random.randn(self.num_particles) * std[0])
         self.particles[:,1] = \
@@ -126,10 +255,7 @@ class ParticleFilter:
         Filter the data using the particle filter.
 
         """
-        self.predictions = np.zeros(len(measurements))
-        mean = np.array([measurements[0], 0])
-        std = np.array([0.1, 0.1]) # TODO: @MaxWeil where does this come from, is it a setting?
-        self.create_gaussian_particles(mean, std)
+        predictions = np.zeros(len(measurements))
         for i, measurement in enumerate(measurements):
             self.predict(input[:,i])
             #print(self.particles, self.weights)
@@ -139,8 +265,9 @@ class ParticleFilter:
             #print(self.particles, self.weights)
             prediction, var = self.estimate()
             #print(self.particles, self.weights)
-            self.predictions[i] = prediction
-        return self.predictions
+            predictions[i] = prediction
+
+        return predictions
 
     def profile_filter(
             self,
@@ -148,7 +275,8 @@ class ParticleFilter:
             input: np.ndarray = np.array([]),
             loading: str = 'tension'
         ):
-        """Profile the filter.
+        """
+        TODO: Do we really need this @MaxWeil? Feels more like something that is only relevant during development
         """
         cProfile.runctx(
             'self.filter(measurements, input, loading)',
@@ -159,6 +287,8 @@ class ParticleFilter:
         p = pstats.Stats('profile_results')
         p.strip_dirs().sort_stats('cumulative').print_stats(10)
         p.strip_dirs().sort_stats('time').print_stats(10)
+
+
 
 # TODO refactor this to a regular class, the dataclass is not really suited for this.
 @dataclass
