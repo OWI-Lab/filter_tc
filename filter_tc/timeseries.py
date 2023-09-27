@@ -1,5 +1,6 @@
 """Apply the particle filter to an sdypy-sep005 data channel
 """
+import warnings
 
 import numpy as np
 from filter_tc.particle_filter import ParticleFilter
@@ -34,7 +35,7 @@ def temp_comp_pf(measurements: dict,
     """
     # For now I'm going to assume that the measurements are also always a single channel, higher dimensionality
     # should be resolved at a higher level, as there are two options there.
-
+    warnings.warn('This function is going to be removed one day', PendingDeprecationWarning)
     # Asserting both the inputs and measurements are SEP005 compliant (TODO: should be caught at a higher level)
     assert_sep005(measurements)
     assert_sep005(inputs)
