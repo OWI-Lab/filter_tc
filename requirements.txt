@@ -1,0 +1,3 @@
+numpy
+sdypy-sep005
+scipy
