@@ -6,39 +6,34 @@ Source: https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/mas
 Author: Maximillian Weil
 """
 from dataclasses import dataclass, field
-from collections import defaultdict
 from typing import List, Tuple
 import scipy as sp
 import numpy as np
-import pandas as pd
 import cProfile
 import pstats
 
-@dataclass
 class ParticleFilter:
     """
     A simple Particle filter implementation for multidimensional data smoothing.
 
     Attributes:
     num_particles (int): The number of particles used in the filter.
-    transition_model (function): A function that takes in a particle and returns a new particle.
-    likelihood_function (function): A function that takes in a particle and a measurement and returns the
-        likelihood of the measurement given the particle.
-    initial_particles (list of np.ndarrays): The initial particles of the system.
+    r_measurement_noise (float): The measurement noise.
+    q_process_noise (np.ndarray): The process noise.
+    scale (float): Scale value.
+    loc (float): Location value.
+    predictions (np.ndarray): Predictions.
     """
-    num_particles: int
-    r_measurement_noise: float = 0.1
-    q_process_noise: np.ndarray = field(default_factory=lambda: np.array([0.1, 0.1]))
-    scale: float = 1
-    loc: float = -0.1
-    predictions: np.ndarray = field(init=False)
-    
-    # FIXME::REQUIRED add the option to give the particles and weights as inputs and check if they are valid
-    def __post_init__(self):
+    def __init__(self, num_particles, r_measurement_noise=0.1, q_process_noise=None, scale=1, loc=-0.1):
+        self.num_particles = num_particles
+        self.r_measurement_noise = r_measurement_noise
+        self.q_process_noise = q_process_noise if q_process_noise is not None else np.array([0.1, 0.1])
+        self.scale = scale
+        self.loc = loc
         self.particles = np.zeros((self.num_particles, 2))
         self.weights = np.ones(self.num_particles) / self.num_particles
         #self.expon_distr = sp.stats.expon(-0.1, self.r_measurement_noise)
-        self.expon_distr = sp.stats.gamma(1 - self.loc/self.r_measurement_noise, scale=self.r_measurement_noise, loc = self.loc)
+        self.expon_distr = sp.stats.gamma(1 - self.loc/self.r_measurement_noise, scale=self.r_measurement_noise, loc=self.loc)
 
     def create_gaussian_particles(
         self,
@@ -50,7 +45,7 @@ class ParticleFilter:
             mean[0] + (np.random.randn(self.num_particles) * std[0])
         self.particles[:,1] = \
             mean[1] + (np.random.randn(self.num_particles) * std[1])
-    
+
     def predict(
             self,
             u_input: np.ndarray
@@ -64,7 +59,7 @@ class ParticleFilter:
         # update delta Ta
         self.particles[:, 1] += \
             (np.random.randn(self.num_particles) * self.q_process_noise[1])
-    
+
     def update(
         self,
         y_measurement,
@@ -94,7 +89,7 @@ class ParticleFilter:
         var  = np.average((pos - mean)**2, weights=self.weights, axis=0)
         #print(mean, var)
         return mean, var
-    
+
     def simple_resample(self, loading='tension'):
         """resample particles with replacement according to weights"""
         cumulative_sum = \
@@ -140,11 +135,11 @@ class ParticleFilter:
             #print(self.particles, self.weights)
             self.predictions[i] = prediction
         return self.predictions
-    
+
     def profile_filter(
-            self, 
-            measurements: np.ndarray, 
-            input: np.ndarray = np.array([]), 
+            self,
+            measurements: np.ndarray,
+            input: np.ndarray = np.array([]),
             loading: str = 'tension'
         ):
         """Profile the filter.
@@ -244,9 +239,9 @@ class ParticleFilter_GPT:
             for j in range(self.num_particles):
                 weights[j] = \
                     self.likelihood_function(
-                        self.particles[j], 
-                        measurements[i], 
-                        self.measurement_noise, 
+                        self.particles[j],
+                        measurements[i],
+                        self.measurement_noise,
                         self.alpha
                     )
 
