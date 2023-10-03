@@ -36,9 +36,10 @@ class ParticleFilterBank(list):
 
 
     @classmethod
-    def from_sep005(cls, measurements:Union[dict, List[dict]], num_particles=100, r_measurement_noise=0.1, q_process_noise=None, scale=1):
+    def from_sep005(cls, measurements:Union[dict, List[dict]], num_particles=100, r_measurement_noise=0.1, q_process_noise=None, scale=1, loc=-0.1):
         """
         Initialize a set of particle filters from SEP005 compliant measurements
+        FIXME: What if the measurements vary greatly and need ParticleFilters with specific settintgs. There should be a way to customize the filters.
 
         Args:
             measurements: All measurements collected
@@ -57,6 +58,7 @@ class ParticleFilterBank(list):
                 r_measurement_noise,
                 q_process_noise,
                 scale,
+                loc,
                 name=measurement['name']
             )
             if 'start_timestamp' in measurement:
@@ -64,6 +66,7 @@ class ParticleFilterBank(list):
 
             mean = np.array([measurement['data'][0], 0]) # From initial value
             std = np.array([0.1, 0.1])  # TODO: @MaxWeil where does this come from, is it a setting?
+                                        # NOTE: @WoutWeitjens this is the initial std of the particle filter to generate random particles, we could increase this
             pf.create_gaussian_particles(mean, std)
 
             # Add to the list of particle filters
@@ -148,20 +151,29 @@ class ParticleFilter:
     loc (float): Location value.
     predictions (np.ndarray): Predictions.
     """
-    def __init__(self, num_particles=100, r_measurement_noise=0.1, q_process_noise=None, scale=1, loc:float=-0.1, name:Union[str,None]=None, timestamp:Union[datetime.datetime,None]=None):
+    def __init__(
+            self, 
+            num_particles=100, 
+            r_measurement_noise=0.1, 
+            q_process_noise=None, scale=1.0, 
+            loc:float=-0.1, 
+            alpha=1.0,
+            name:Union[str,None]=None, 
+            timestamp:Union[datetime.datetime,None]=None
+        ):
         self.num_particles = num_particles
         self.r_measurement_noise = r_measurement_noise
         self.q_process_noise = q_process_noise if q_process_noise is not None else np.array([0.1, 0.1])
         self.scale = scale
         self.loc = loc
-        self.particles = np.zeros((self.num_particles, 2)) # TODO: @MaxWeil Why two, mean and std???
+        self.alpha = alpha
+        self.particles = np.zeros((self.num_particles, 2))  # TODO: @MaxWeil Why two, mean and std??? 
+                                                            # NOTE: @WoutWeitjens our state passes the temperature (Ta) and the change in temperature (delta Ta)
+                                                            # NOTE: We then initialise them with zero when we have no measurements and update them through the measurements
         self.weights = np.ones(self.num_particles) / self.num_particles
-        #self.expon_distr = sp.stats.expon(-0.1, self.r_measurement_noise)
-        self.expon_distr = sp.stats.gamma(
-            1 - self.loc/self.r_measurement_noise,
-            scale=self.r_measurement_noise,
-            loc=self.loc
-        )
+        #self.event_distribution = sp.stats.expon(-0.1, self.r_measurement_noise)
+        #self.event_distribution = sp.stats.halfnorm(0,self.r_measurement_noise)
+        self.event_distribution = sp.stats.gamma(1 - self.loc/self.r_measurement_noise, scale=self.r_measurement_noise, loc=self.loc)
 
         # Additional properties for administration
         self.name = name
@@ -173,7 +185,6 @@ class ParticleFilter:
         std: np.ndarray,
         ) -> None:
         self.particles = np.empty((self.num_particles, 2))
-
         self.particles[:,0] = \
             mean[0] + (np.random.randn(self.num_particles) * std[0])
         self.particles[:,1] = \
@@ -186,6 +197,7 @@ class ParticleFilter:
         """ move according to control input u (measured temperature)
         with input noise q (std measured temperature)"""
         # update Ta
+        self.u_input = u_input
         self.particles[:, 0] += \
             u_input[1] \
             + (np.random.randn(self.num_particles) * self.q_process_noise[0])
@@ -208,10 +220,9 @@ class ParticleFilter:
         else:
             raise ValueError('Loading must be either "tension" or "compression"')
         self.weights *= \
-            self.expon_distr.pdf(distance)
+            self.event_distribution.pdf(distance)
         self.weights += 1.e-300      # avoid round-off to zero
         self.weights /= sum(self.weights) # normalize
-        #print(self.weights, self.particles[:, 0], y_measurement)
 
     def estimate(
         self
@@ -220,7 +231,6 @@ class ParticleFilter:
         pos = self.particles[:, 0]
         mean = np.average(pos, weights=self.weights, axis=0)
         var  = np.average((pos - mean)**2, weights=self.weights, axis=0)
-        #print(mean, var)
         return mean, var
 
     def simple_resample(self, loading='tension'):
@@ -243,7 +253,6 @@ class ParticleFilter:
             raise ValueError('Loading must be either "tension" or "compression"')
         self.weights[:] = self.weights[indexes]
         self.weights /= np.sum(self.weights)
-        #print(self.particles[:,0], self.weights)
 
     def filter(
         self,
@@ -277,6 +286,7 @@ class ParticleFilter:
         ):
         """
         TODO: Do we really need this @MaxWeil? Feels more like something that is only relevant during development
+        NOTE: I don't really remember this finction. But as it is never used I think we can remove it.
         """
         cProfile.runctx(
             'self.filter(measurements, input, loading)',
@@ -291,6 +301,8 @@ class ParticleFilter:
 
 
 # TODO refactor this to a regular class, the dataclass is not really suited for this.
+# NOTE: I would focus on unidimensional cases for now (using 1 T sensor for T compensation).
+# NOTE: But the idea was to improve the filter including multiple sensors on the same sensor line
 @dataclass
 class ParticleFilter_GPT:
     """
