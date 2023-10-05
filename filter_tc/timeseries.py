@@ -1,63 +1,59 @@
 """Apply the particle filter to an sdypy-sep005 data channel
 """
 import warnings
-
+from typing import List
 import numpy as np
 from filter_tc.particle_filter import ParticleFilter
 from sdypy_sep005.sep005 import assert_sep005
 
 
-## FIXME: Need a sep-005 typehint
-def temp_comp_pf(measurements: dict,
-                 inputs: dict,
-                 loading: str,
-                 num_particles: int,
-                 r_measurement_noise: float,
-                 q_process_noise: np.ndarray,
-                 scale: float
-                 ):
+def temp_comp_pf(
+    measurements: dict,
+    inputs: dict,
+    loading: str,
+    num_particles: int,
+    r_measurement_noise: float,
+    q_process_noise: List[float],
+    scale: float,
+    ) -> dict:  
     """
-    Process
-
+    Apply the particle filter to a measurements using the temperature data as input.
     NOTE: all input data should be presented in a SEP005 compliant
 
     Args:
-        measurements:
-        inputs:
-        loading:
-        num_particles:
-        r_measurement_noise:
-        q_process_noise:
-        scale:
+        measurements (dict): Measurements data in SEP005 format.
+        inputs (dict): Input data in SEP005 format.
+        loading (str): Loading type, either 'tension' or 'compression'.
+        num_particles (int): Number of particles to use in the particle filter.
+        r_measurement_noise (float): The measurement noise.
+        q_process_noise (List[float]): Noise of the process.
+        scale (float): Scale of the noise added to particles when resampling.
+
+    Raises:
+        ValueError: If the number of data points in the measurements and inputs are not equal.
 
     Returns:
-
+        dict: Filtered data in SEP005 format.
     """
-    # For now I'm going to assume that the measurements are also always a single channel, higher dimensionality
-    # should be resolved at a higher level, as there are two options there.
+    # For now I'm going to assume that the measurements are also always a single channel,
+    # higher dimensionality should be resolved at a higher level, as there are two options there.
     warnings.warn('This function is going to be removed one day', PendingDeprecationWarning)
     # Asserting both the inputs and measurements are SEP005 compliant (TODO: should be caught at a higher level)
     assert_sep005(measurements)
     assert_sep005(inputs)
-
     # Check compability
     if len(inputs['data']) != len(measurements['data']):
         raise ValueError(
             f"Input data and all measurements must have the same number of data points,"
             f" now ({len(inputs['data'])},{len(measurements['data'])})"
         )
-
-
     ## FIXME: Create a pf settings assert function
     # assert_pfsettings(pf_settings)
-
     filtered_data = measurements.copy()
     filtered_data['data'] = []
     filtered_data['name'] = 'filtered_data_' + measurements['name']
     filtered_data['temperature_trend_data'] = []
-
     filtered_data['filters'] = []
-
     sensor_data = measurements['data']
     # Initialize a particle filter for every channel
     pf = ParticleFilter(
