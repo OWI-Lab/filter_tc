@@ -41,7 +41,7 @@ class ParticleFilterBank(list):
         inputs:Union[dict, List[dict], None] = None,
         num_particles:int = 1000,
         r_measurement_noise:float = 0.1,
-        q_process_noise:List[float] = [0.1, 0.1],
+        q_process_noise:np.ndarray = np.array([0.1, 0.1]),
         scale: float = 0.1,
         loc:float = -0.1,
         alpha:Union[float, List[float], None] = None
@@ -58,9 +58,9 @@ class ParticleFilterBank(list):
                 Used to generate the gamma distribution that discribes the events.
                 The distribution is used for generating the weights of the particles.
                 Defaults to 0.1.
-            q_process_noise (List[float], optional): Noise of the process.
+            q_process_noise (np.ndarray, optional): Noise of the process.
                 Used to generate the particles.
-                Defaults to [0.1, 0.1].
+                Defaults to np.array([0.1, 0.1]).
             scale (float, optional): Scale of the noise added to particles when resampling.
                 Defaults to 0.1.
             loc (float, optional): Shift of the gamma distribution,
@@ -104,7 +104,9 @@ class ParticleFilterBank(list):
                 if 'start_timestamp_format' in measurement:
                     timestamp_format = measurement['start_timestamp_format']
                 else:
-                    sep005_default_format = "%d/%m/%y %H:%M:%S.%f" # TODO: @Wout, is there a default format for sep005 timestamps?
+                    # TODO: @Wout, is there a default format for sep005 timestamps?
+                    # NOTE: I'm using the default format from the SCB project currently.
+                    sep005_default_format = '%Y-%m-%d %H:%M:%S%z' 
                     timestamp_format = sep005_default_format
                 particle_filter.timestamp = datetime.datetime.strptime(measurement['start_timestamp'], timestamp_format)
             mean = np.array([measurement['data'][0], 0]) # From initial value of the measurement
@@ -189,9 +191,13 @@ class ParticleFilterBank(list):
             filtered_data['name'] = 'filtered_' + measurement['name']
             if particle_filter.timestamp: # type: ignore
                 ## Update the particle filter timestamp to the latest sample
+                # TODO: @Wout, is there a default format for sep005 timestamps?
+                # NOTE: I'm using the default format from the SCB project currently.
+                sep005_default_format = '%Y-%m-%d %H:%M:%S%z' 
+                timestamp_format = sep005_default_format
                 particle_filter.timestamp =  ( # type: ignore
-                    measurement['start_timestamp']
-                    + measurement['fs']*len(measurement['data'])
+                    datetime.datetime.strptime(measurement['start_timestamp'], timestamp_format)
+                    + datetime.timedelta(seconds=measurement['fs']*len(measurement['data']))
                     )
             filter_outputs.append(filtered_data)
         return filter_outputs
@@ -208,9 +214,9 @@ class ParticleFilter:
             Used to generate the gamma distribution that discribes the events.
             The distribution is used for generating the weights of the particles.
             Defaults to 0.1.
-        q_process_noise (List[float], optional): Noise of the process.
-            Used to generate the particles.
-            Defaults to [0.1, 0.1].
+        q_process_noise (np.ndarray, optional): Noise of the process.
+                Used to generate the particles.
+                Defaults to np.array([0.1, 0.1]).
         scale (float, optional): Scale of the noise added to particles when resampling.
             Defaults to 0.1.
         loc (float, optional): Shift of the gamma distribution,
@@ -237,7 +243,7 @@ class ParticleFilter:
             self, 
             num_particles:int = 1000,
             r_measurement_noise:float = 0.1, 
-            q_process_noise:List[float] = [0.1, 0.1],
+            q_process_noise:np.ndarray = np.array([0.1, 0.1]),
             scale:float = 0.1,
             loc:float = -0.1,
             alpha:Union[float, List[float], None] = None,

@@ -13,9 +13,9 @@ def temp_comp_pf(
     loading: str,
     num_particles: int,
     r_measurement_noise: float,
-    q_process_noise: List[float],
+    q_process_noise: np.ndarray,
     scale: float,
-    ) -> dict:  
+    ) -> dict:
     """
     Apply the particle filter to a measurements using the temperature data as input.
     NOTE: all input data should be presented in a SEP005 compliant
@@ -26,7 +26,7 @@ def temp_comp_pf(
         loading (str): Loading type, either 'tension' or 'compression'.
         num_particles (int): Number of particles to use in the particle filter.
         r_measurement_noise (float): The measurement noise.
-        q_process_noise (List[float]): Noise of the process.
+        q_process_noise (np.ndarray): Noise of the process.
         scale (float): Scale of the noise added to particles when resampling.
 
     Raises:
