@@ -1,7 +1,9 @@
 from typing import Union, List
 import numpy as np
+import warnings
 from sdypy_sep005.sep005 import assert_sep005
 from sklearn.linear_model import LinearRegression
+
 
 
 def preprocess_measurements(
@@ -86,6 +88,37 @@ def assert_pfsettings(pf_settings: dict):
     """
     pass
 
+
+def define_alpha(
+    alpha:Union[float, List[float], None] = None,
+    i:int = 0,
+    measurement:Union[dict, List[dict], None] = None,
+    inputs:Union[dict, List[dict], None] = None
+) -> float:
+    """Function that defines the alpha parameter of the particle filter.
+
+    Args:
+        alpha (Union[float, List[float], None], optional): Relationship term between input and measurements.
+            Can be given as a single float for all measurements,
+            a list of one floats for every measurement,
+            or None to learn alpha from the data if the input is given.
+            If nothing is given, it is set to 1.0.
+            Defaults to None.
+
+    Returns:
+        float: alpha parameter of the particle filter for the given measurement.
+    """
+    if isinstance(alpha, float): # Constant alpha for all measurements
+        alpha_ = alpha
+    elif isinstance(alpha, list): # Specific alpha for every measurement
+        alpha_ = alpha[i]
+        i += 1
+    elif alpha is None and inputs is not None: # Learn alpha from the data if no alpha is given
+        alpha_ = learn_alpha(inputs['data'].reshape(-1, 1), measurement['data']) #type: ignore
+    else: # Constant alpha for all measurements
+        alpha_ = 1.0
+        warnings.warn('No alpha and no input given, using default value of 1.0')
+    return alpha_
 
 
 def learn_alpha(

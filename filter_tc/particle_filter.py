@@ -11,8 +11,12 @@ import warnings
 import scipy as sp  # FIXME: This is a HEAVY dependency, if we can loose it in the future would be nice.
                     # NOTE: It is possible to define a gamma distribution in numpy alternatively (np.random.gamma(shape, scale, size)).
 import numpy as np
+import time
+import timeit
+import concurrent.futures
 
-from filter_tc.utils import preprocess_measurements, preprocess_inputs, learn_alpha
+from filter_tc.utils import preprocess_measurements, preprocess_inputs, learn_alpha, define_alpha
+from filter_tc.custom_distributions import CustomGammaDistribution
 
 
 class ParticleFilterBank(list):
@@ -20,7 +24,10 @@ class ParticleFilterBank(list):
     The ParticleFilterBank class manages all particle filters
     associated with a set of measurements and inputs.
     """
-    def __getitem__(self, item):
+    def __getitem__(
+        self,
+        item
+    ):
         if isinstance(item, slice):
             result = list.__getitem__(self, item)
             return ParticleFilterBank(result)
@@ -31,7 +38,6 @@ class ParticleFilterBank(list):
             for pf in self:
                 if pf.name == item:
                     return pf
-
             raise ValueError(f'No particle filter with name "{item}" in {str(self)}')
 
     @classmethod
@@ -45,7 +51,7 @@ class ParticleFilterBank(list):
         scale: float = 0.1,
         loc:float = -0.1,
         alpha:Union[float, List[float], None] = None
-        ) -> List['ParticleFilter']:
+    ) -> List['ParticleFilter']:
         """Initialize a set of particle filters from SEP005 compliant measurements.
         FIXME: What if measurements vary greatly and need ParticleFilters with specific settintgs.
         There should be a way to customize the filters, specially the alpha term!
@@ -81,16 +87,7 @@ class ParticleFilterBank(list):
         # as implemented in the preprocess_measurements function
         particle_filters = []
         for i, measurement in enumerate(measurements):
-            if isinstance(alpha, float): # Constant alpha for all measurements
-                alpha_ = alpha
-            elif isinstance(alpha, list): # Specific alpha for every measurement
-                alpha_ = alpha[i]
-                i += 1
-            elif alpha is None and inputs is not None: # Learn alpha from the data if no alpha is given
-                alpha_ = learn_alpha(inputs['data'].reshape(-1, 1), measurement['data']) #type: ignore
-            else: # Constant alpha for all measurements
-                alpha_ = 1.0
-                warnings.warn('No alpha and no input given, using default value of 1.0')
+            alpha_ = define_alpha(alpha, i, measurement, inputs)
             particle_filter = ParticleFilter(
                 num_particles,
                 r_measurement_noise,
@@ -106,7 +103,7 @@ class ParticleFilterBank(list):
                 else:
                     # TODO: @Wout, is there a default format for sep005 timestamps?
                     # NOTE: I'm using the default format from the SCB project currently.
-                    sep005_default_format = '%Y-%m-%d %H:%M:%S%z' 
+                    sep005_default_format = '%Y-%m-%d %H:%M:%S%z'
                     timestamp_format = sep005_default_format
                 particle_filter.timestamp = datetime.datetime.strptime(measurement['start_timestamp'], timestamp_format)
             mean = np.array([measurement['data'][0], 0]) # From initial value of the measurement
@@ -120,7 +117,7 @@ class ParticleFilterBank(list):
     def from_states(
         cls,
         collected_states:List[dict]
-        ) -> List['ParticleFilter']:
+    ) -> List['ParticleFilter']:
         """This function creates a filterbank from a previous filter state
         (e.g. as stored from 'export_states')
 
@@ -139,7 +136,9 @@ class ParticleFilterBank(list):
         return cls(particle_filters)
 
 
-    def export_states(self) -> List[dict]:
+    def export_states(
+        self
+    ) -> List[dict]:
         """Export the state of every ParticleFilter in the class, e.g. to be stored somewhere
 
         Returns:
@@ -155,7 +154,7 @@ class ParticleFilterBank(list):
         self,
         measurements:Union[dict, List[dict]],
         inputs:Union[dict, List[dict]]
-        ) -> List[dict]:
+    ) -> List[dict]:
         """Filter all the measurements, 
         using the particle filters in the partcile filter bank with the specified input.
 
@@ -253,7 +252,7 @@ class ParticleFilter:
             name:Union[str,None] = None,
             timestamp:Union[datetime.datetime,None] = None,
             u_input:Union[np.ndarray,None] = None
-        ):
+    ):
         self.num_particles = num_particles
         self.r_measurement_noise = r_measurement_noise
         self.q_process_noise = q_process_noise if q_process_noise is not None else np.array([0.1, 0.1])
@@ -268,7 +267,10 @@ class ParticleFilter:
                     1 - self.loc/self.r_measurement_noise,
                     scale=self.r_measurement_noise,
                     loc=self.loc
-                ) 
+                )
+        # NOTE: Alternative numpy distribution (doesn't work yet)
+        # self.np_event_distribution = \
+        #    CustomGammaDistribution(1 - self.loc / self.r_measurement_noise, self.r_measurement_noise, self.loc)
         self.alpha = alpha
         # Properties defining the last observed state of the particle filter
         self.particles = particles
@@ -286,13 +288,13 @@ class ParticleFilter:
         self,
         mean: np.ndarray,
         std: np.ndarray,
-        ) -> None:
+    ) -> None:
         """Create a set of particles with a normal distribution around the mean.
         
         Args:
             mean (np.ndarray): mean of the generated particles.
             std (np.ndarray): standard deviation of the generated particles.
-        """        
+        """ 
         self.particles = np.empty((self.num_particles, 2))
         self.particles[:,0] = \
             mean[0] + (np.random.randn(self.num_particles) * std[0])
@@ -300,9 +302,9 @@ class ParticleFilter:
             mean[1] + (np.random.randn(self.num_particles) * std[1])
 
     def predict(
-            self,
-            u_input: np.ndarray
-            ) -> None:
+        self,
+        u_input: np.ndarray
+    ) -> None:
         """ Move according to control input u (measured temperature)
         with input noise q (std measured temperature).
         q controls the spread of the generated particles.
@@ -314,6 +316,7 @@ class ParticleFilter:
         """
         # update Ta
         self.u_input = u_input
+        self.alpha = define_alpha(self.alpha)
         if self.particles is not None:
             self.particles[:, 0] += \
                 u_input[1] * self.alpha \
@@ -328,7 +331,7 @@ class ParticleFilter:
         self,
         y_measurement: float,
         loading:str = 'tension'
-        ) -> None:
+    ) -> None:
         """ Incorporate measurement y (measured strain)
         with measurement noise r."""
         # compute likelihood of measurement
@@ -342,13 +345,13 @@ class ParticleFilter:
             raise ValueError('No event distribution found, please initialize the event distribution first.')
         else:
             self.weights *= \
-                self.event_distribution.pdf(distance)
+                self.event_distribution.pdf(distance) #self.np_event_distribution.pdf(distance)
         self.weights += 1.e-300      # avoid round-off to zero
         self.weights /= sum(self.weights) # normalize
 
     def estimate(
         self
-        ):
+    ):
         """returns mean and variance of the weighted particles"""
         pos = self.particles[:, 0]
         mean = np.average(pos, weights=self.weights, axis=0)
@@ -358,7 +361,7 @@ class ParticleFilter:
     def simple_resample(
         self,
         loading='tension'
-        ):
+    ):
         """Discard highly improbable particle and replace them with copies of the more probable particles.
         Resample particles with replacement according to weights.
 
@@ -393,7 +396,7 @@ class ParticleFilter:
         measurements: np.ndarray,
         input: np.ndarray,
         loading: str = 'tension'
-        ) -> np.ndarray:
+    ) -> np.ndarray:
         """Filter the data using the particle filter.
 
         Args:
@@ -406,17 +409,15 @@ class ParticleFilter:
         Returns:
             np.ndarray: Filtered measurements.
         """
+        if self.alpha is None:
+            self.alpha = learn_alpha(input, measurements)
         if loading not in ['tension', 'compression']:
             raise ValueError('Loading must be either "tension" or "compression"')
         predictions = np.zeros(len(measurements))
         for i, measurement in enumerate(measurements):
             self.predict(input[:,i])
-            #print(self.particles, self.weights)
             self.update(measurement, loading=loading)
-            #print(self.particles, self.weights)
             self.simple_resample(loading=loading)
-            #print(self.particles, self.weights)
             prediction, _ = self.estimate()
-            #print(self.particles, self.weights)
             predictions[i] = prediction
         return predictions
