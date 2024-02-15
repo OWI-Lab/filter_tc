@@ -6,7 +6,7 @@ Source: https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/mas
 Author: Maximillian Weil
 """
 import datetime
-from typing import List, Union
+from typing import List, Union, Mapping
 import warnings
 import scipy as sp  # FIXME: This is a HEAVY dependency, if we can loose it in the future would be nice.
                     # NOTE: It is possible to define a gamma distribution in numpy alternatively (np.random.gamma(shape, scale, size)).
@@ -18,6 +18,7 @@ import concurrent.futures
 from filter_tc.utils import preprocess_measurements, preprocess_inputs, learn_alpha, define_alpha
 from filter_tc.custom_distributions import CustomGammaDistribution
 
+SEP005_DEFAULT_FORMAT = '%Y-%m-%d %H:%M:%S%z'
 
 class ParticleFilterBank(list):
     """
@@ -103,8 +104,8 @@ class ParticleFilterBank(list):
                 else:
                     # TODO: @Wout, is there a default format for sep005 timestamps?
                     # NOTE: I'm using the default format from the SCB project currently.
-                    sep005_default_format = '%Y-%m-%d %H:%M:%S%z'
-                    timestamp_format = sep005_default_format
+                    #sep005_default_format = '%Y-%m-%d %H:%M:%S%z'
+                    timestamp_format = SEP005_DEFAULT_FORMAT
                 particle_filter.timestamp = datetime.datetime.strptime(measurement['start_timestamp'], timestamp_format)
             mean = np.array([measurement['data'][0], 0]) # From initial value of the measurement
             std = np.array([0.1, 0.1])
@@ -116,7 +117,7 @@ class ParticleFilterBank(list):
     @classmethod
     def from_states(
         cls,
-        collected_states:List[dict]
+        collected_states: dict[str, dict[str, Union[str, float, List[float], np.ndarray]]]
     ) -> List['ParticleFilter']:
         """This function creates a filterbank from a previous filter state
         (e.g. as stored from 'export_states')
@@ -130,25 +131,57 @@ class ParticleFilterBank(list):
                 containing one particle filters for every measurement.
         """
         particle_filters = []
-        for state in collected_states:
-            particle_filter = ParticleFilter(**state) # Using the dict as the input for the particle filters
+        states = {}
+        for sensor in collected_states:
+            for var in collected_states[sensor]:
+                if isinstance(collected_states[sensor][var], list):
+                    collected_states[sensor][var] = np.array(collected_states[sensor][var])
+                if var == 'event_distribution':
+                    if not isinstance(collected_states[sensor]['event_distribution'], str):
+                        raise ValueError('The event distribution is not a string, please ensure the type of distribution is a string.')
+                    if not (isinstance(collected_states[sensor]['loc'], float) or isinstance(collected_states[sensor]['loc'], int)):
+                        raise ValueError('The event distribution loc is not a float or int, please ensure the type of distribution is a float or int.')
+                    if not (isinstance(collected_states[sensor]['scale'], float) or isinstance(collected_states[sensor]['scale'], int)):
+                        raise ValueError('The event distribution scale is not a float, please ensure the type of distribution is a float.')
+                    collected_states[sensor][var] = \
+                        getattr(
+                            sp.stats, # type: ignore
+                            str(collected_states[sensor][var])) \
+                            (
+                                a = 1 - collected_states[sensor]['loc']/collected_states[sensor]['scale'], #type: ignore
+                                loc=collected_states[sensor]['loc'],
+                                scale=collected_states[sensor]['scale']
+                            )
+            states[sensor] = collected_states[sensor]
+
+            particle_filter = ParticleFilter(**states[sensor]) # Using the dict as the input for the particle filters
             particle_filters.append(particle_filter)
         return cls(particle_filters)
 
 
     def export_states(
         self
-    ) -> List[dict]:
+    ) -> Mapping[str, Mapping[str, Union[str, float, List[float]]]]:
         """Export the state of every ParticleFilter in the class, e.g. to be stored somewhere
 
         Returns:
             List[dict]: Collected states of the particle filters to be loaded.
                 Settings of the particle filters are stored in a dict.
         """
-        collected_states = []
+        collected_states = {}
         for pf in self:
-            collected_states.append(vars(pf))
+            collected_states[pf.name] = {}
+            for var in vars(pf):
+                if var == 'event_distribution':
+                    collected_states[pf.name][var] = vars(pf)[var].dist.name
+                elif isinstance(vars(pf)[var], np.ndarray):
+                    collected_states[pf.name][var] = vars(pf)[var].tolist()
+                elif isinstance(vars(pf)[var], datetime.datetime):
+                    collected_states[pf.name][var] = vars(pf)[var].strftime(SEP005_DEFAULT_FORMAT)
+                else:
+                    collected_states[pf.name][var] = vars(pf)[var]
         return collected_states
+
 
     def filter(
         self,
@@ -192,8 +225,7 @@ class ParticleFilterBank(list):
                 ## Update the particle filter timestamp to the latest sample
                 # TODO: @Wout, is there a default format for sep005 timestamps?
                 # NOTE: I'm using the default format from the SCB project currently.
-                sep005_default_format = '%Y-%m-%d %H:%M:%S%z' 
-                timestamp_format = sep005_default_format
+                timestamp_format = SEP005_DEFAULT_FORMAT
                 particle_filter.timestamp =  ( # type: ignore
                     datetime.datetime.strptime(measurement['start_timestamp'], timestamp_format)
                     + datetime.timedelta(seconds=measurement['fs']*len(measurement['data']))
