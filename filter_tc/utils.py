@@ -1,9 +1,21 @@
 from typing import Union, List
 import numpy as np
 import warnings
+import datetime
 from sdypy_sep005.sep005 import assert_sep005
 from sklearn.linear_model import LinearRegression
 
+def sep005_get_timestamps(sep005: dict, start_timestamp_format="%Y-%m-%d %H:%M:%S%z"):
+    assert_sep005(sep005)
+    if "start_timestamp" in sep005:
+        if "start_timestamp_format" in sep005:
+            start_timestamp_format = sep005["start_timestamp_format"]
+        start_timestamp = datetime.datetime.strptime(sep005["start_timestamp"], start_timestamp_format)
+        interval = datetime.timedelta(seconds=1/sep005["fs"])
+        timestamps = start_timestamp + interval*np.arange(len(sep005["data"]))
+        return timestamps
+    else:
+        print("No start_timestamp in sep005")
 
 
 def preprocess_measurements(
