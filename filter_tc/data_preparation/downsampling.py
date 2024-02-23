@@ -4,9 +4,11 @@ downsampling.py - Module to downsample SEP005 data to a new sampling frequency.
 Author: Maximillian Weil
 """
 
-from typing import Union, List
+from typing import List, Union
+
 import numpy as np
 from sdypy_sep005.sep005 import assert_sep005
+
 
 class Sep005Downsampler:
     def __init__(
@@ -67,5 +69,6 @@ class Sep005Downsampler:
                     self.downsampled_sep005[key] = self.sep005[key]
             else:
                 self.downsampled_sep005[key] = self.sep005[key]
+        self.downsampled_sep005["fs"] = self.new_fs
         assert_sep005(self.downsampled_sep005)
     
