@@ -20,9 +20,10 @@ Installation
 
 Ensure you have Python 3.9 or more recent installed on your system. You can install this package using the following command::
 
+.. code-block:: bash
+
     pip install git+https://github.com/WEILMAX/filter_tc.git
-
-
+..
 
 Quick Start
 -----------
@@ -44,7 +45,24 @@ Quick Start
         loc=-10)
 
         # Run the particle filter
-        pf.run(measurements, inputs)
+        pf.filter(measurements, inputs, loading='tension')
+
+..
+
+Resulting filtering
+-------------------
+* Examples for applying the Particle filter for tension and compression loading measurements are given in the notebooks.
+* The following figures show the concept of the Particle Filter and the resulting data after removing the PF output from the measurements to approximate events.
+        * Example of inputs, measurements, particle propagations (grey) and Particle Filter output:
+        .. figure:: figures/particle_filter/particle_filter_concept.png
+                :align: center
+                :alt: Example of a PF.
+
+        * Example of the data after removing the PF output from the measurements to approximate events:
+        .. figure:: figures/particle_filter/filtered_data.png
+                :align: center
+                :alt: Example of a PF.
+
 
 
 
