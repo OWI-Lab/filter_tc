@@ -51,7 +51,8 @@ class ParticleFilterBank(list):
         q_process_noise:np.ndarray = np.array([0.1, 0.1]),
         scale: float = 0.1,
         loc:float = -0.1,
-        alpha:Union[float, List[float], None] = None
+        alpha:Union[float, List[float], None] = None,
+        event_distribution:Union[sp.stats.rv_continuous,None] = None, #type: ignore
     ) -> List['ParticleFilter']:
         """Initialize a set of particle filters from SEP005 compliant measurements.
         FIXME: What if measurements vary greatly and need ParticleFilters with specific settintgs.
@@ -96,7 +97,8 @@ class ParticleFilterBank(list):
                 scale,
                 loc,
                 alpha_,
-                name=measurement['name']
+                name=measurement['name'],
+                event_distribution = event_distribution
             )
             if 'start_timestamp' in measurement:
                 if 'start_timestamp_format' in measurement:
