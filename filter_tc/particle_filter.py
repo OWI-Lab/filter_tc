@@ -150,7 +150,8 @@ class ParticleFilterBank(list):
                             sp.stats, # type: ignore
                             str(collected_states[sensor][var])) \
                             (
-                                a = 1 - collected_states[sensor]['loc']/collected_states[sensor]['scale'], #type: ignore
+                                1, #type: ignore
+                                #a = 1 - collected_states[sensor]['loc']/collected_states[sensor]['scale'], #type: ignore
                                 loc=collected_states[sensor]['loc'],
                                 scale=collected_states[sensor]['scale']
                             )
