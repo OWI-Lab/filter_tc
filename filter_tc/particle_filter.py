@@ -139,10 +139,6 @@ class ParticleFilterBank(list):
             for var in collected_states[sensor]:
                 if isinstance(collected_states[sensor][var], list):
                     collected_states[sensor][var] = np.array(collected_states[sensor][var])
-                if var == 'event_distribution':
-                    if not isinstance(collected_states[sensor]['event_distribution']['dist_name'], str):
-                        raise ValueError('The event distribution name is not a string, please ensure the type of distribution is a string.')
-                    
                     distribution = \
                         getattr(
                             sp.stats,
