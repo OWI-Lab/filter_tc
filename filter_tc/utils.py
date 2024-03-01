@@ -108,6 +108,8 @@ def define_alpha(
     inputs:Union[dict, List[dict], None] = None
 ) -> float:
     """Function that defines the alpha parameter of the particle filter.
+    For temperature compensation, the alpha parameter is the relationship term between input (temp) and measurements (strain),
+    or the thermal expansion coefficient.
 
     Args:
         alpha (Union[float, List[float], None], optional): Relationship term between input and measurements.

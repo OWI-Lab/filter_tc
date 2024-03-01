@@ -10,6 +10,7 @@ from typing import List, Union, Mapping
 import warnings
 import scipy as sp  # FIXME: This is a HEAVY dependency, if we can loose it in the future would be nice.
                     # NOTE: It is possible to define a gamma distribution in numpy alternatively (np.random.gamma(shape, scale, size)).
+from scipy import stats
 import numpy as np
 import time
 import timeit
@@ -139,22 +140,19 @@ class ParticleFilterBank(list):
                 if isinstance(collected_states[sensor][var], list):
                     collected_states[sensor][var] = np.array(collected_states[sensor][var])
                 if var == 'event_distribution':
-                    if not isinstance(collected_states[sensor]['event_distribution'], str):
-                        raise ValueError('The event distribution is not a string, please ensure the type of distribution is a string.')
-                    if not (isinstance(collected_states[sensor]['loc'], float) or isinstance(collected_states[sensor]['loc'], int)):
-                        raise ValueError('The event distribution loc is not a float or int, please ensure the type of distribution is a float or int.')
-                    if not (isinstance(collected_states[sensor]['scale'], float) or isinstance(collected_states[sensor]['scale'], int)):
-                        raise ValueError('The event distribution scale is not a float, please ensure the type of distribution is a float.')
-                    collected_states[sensor][var] = \
+                    if not isinstance(collected_states[sensor]['event_distribution']['dist_name'], str):
+                        raise ValueError('The event distribution name is not a string, please ensure the type of distribution is a string.')
+                    
+                    distribution = \
                         getattr(
-                            sp.stats, # type: ignore
-                            str(collected_states[sensor][var])) \
-                            (
-                                1, #type: ignore
-                                #a = 1 - collected_states[sensor]['loc']/collected_states[sensor]['scale'], #type: ignore
-                                loc=collected_states[sensor]['loc'],
-                                scale=collected_states[sensor]['scale']
+                            sp.stats,
+                            collected_states[sensor]['event_distribution']['dist_name']
+                            )(
+                                collected_states[sensor]['event_distribution']['dist_args'],
+                                **collected_states[sensor]['event_distribution']['dist_kwds']
                             )
+                    collected_states[sensor][var] = distribution
+
             states[sensor] = collected_states[sensor]
 
             particle_filter = ParticleFilter(**states[sensor]) # Using the dict as the input for the particle filters
@@ -176,7 +174,7 @@ class ParticleFilterBank(list):
             collected_states[pf.name] = {}
             for var in vars(pf):
                 if var == 'event_distribution':
-                    collected_states[pf.name][var] = vars(pf)[var].dist.name
+                    collected_states[pf.name][var] = {'dist_name': vars(pf)[var].dist.name, 'dist_args': vars(pf)[var].args, 'dist_kwds': vars(pf)[var].kwds}
                 elif isinstance(vars(pf)[var], np.ndarray):
                     collected_states[pf.name][var] = vars(pf)[var].tolist()
                 elif isinstance(vars(pf)[var], datetime.datetime):
@@ -298,8 +296,8 @@ class ParticleFilter:
         if self.event_distribution is None:
             # TODO: Replace scipy by numpy to define the distribution
             self.event_distribution = \
-                sp.stats.gamma( #type: ignore
-                    1 - self.loc/self.r_measurement_noise,
+                sp.stats.invweibull( #type: ignore
+                    1,
                     scale=self.r_measurement_noise,
                     loc=self.loc
                 )
