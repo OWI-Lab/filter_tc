@@ -50,7 +50,6 @@ class ParticleFilterBank(list):
         num_particles:int = 1000,
         r_measurement_noise:float = 0.1,
         q_process_noise:np.ndarray = np.array([0.1, 0.1]),
-        scale: float = 0.1,
         loc:float = -0.1,
         alpha:Union[float, List[float], None] = None,
         event_distribution:Union[sp.stats.rv_continuous,None] = None, #type: ignore
@@ -95,7 +94,6 @@ class ParticleFilterBank(list):
                 num_particles,
                 r_measurement_noise,
                 q_process_noise,
-                scale,
                 loc,
                 alpha_,
                 name=measurement['name'],
@@ -139,13 +137,14 @@ class ParticleFilterBank(list):
             for var in collected_states[sensor]:
                 if isinstance(collected_states[sensor][var], list):
                     collected_states[sensor][var] = np.array(collected_states[sensor][var])
+                if var == 'event_distribution':
                     distribution = \
                         getattr(
                             sp.stats,
-                            collected_states[sensor]['event_distribution']['dist_name']
+                            collected_states[sensor][var]['dist_name']
                             )(
-                                collected_states[sensor]['event_distribution']['dist_args'],
-                                **collected_states[sensor]['event_distribution']['dist_kwds']
+                                collected_states[sensor][var]['dist_args'],
+                                **collected_states[sensor][var]['dist_kwds']
                             )
                     collected_states[sensor][var] = distribution
 
@@ -268,11 +267,10 @@ class ParticleFilter:
             Defaults to None.
     """
     def __init__(
-            self, 
+            self,
             num_particles:int = 1000,
             r_measurement_noise:float = 0.1, 
             q_process_noise:np.ndarray = np.array([0.1, 0.1]),
-            scale:float = 0.1,
             loc:float = -0.1,
             alpha:Union[float, List[float], None] = None,
             particles:np.ndarray = np.array([]),
@@ -285,7 +283,6 @@ class ParticleFilter:
         self.num_particles = num_particles
         self.r_measurement_noise = r_measurement_noise
         self.q_process_noise = q_process_noise if q_process_noise is not None else np.array([0.1, 0.1])
-        self.scale = scale
         # Properties defining the event distribution
         self.loc = loc
         self.event_distribution = event_distribution
@@ -304,7 +301,7 @@ class ParticleFilter:
         # Properties defining the last observed state of the particle filter
         self.particles = particles
         if len(self.particles) == 0:
-            self.particles = np.zeros((self.num_particles, 2))
+            self.particles = np.zeros(self.num_particles)
         self.weights = weights
         if len(self.weights) == 0:
             self.weights = np.ones(self.num_particles) / self.num_particles
@@ -324,20 +321,19 @@ class ParticleFilter:
             mean (np.ndarray): mean of the generated particles.
             std (np.ndarray): standard deviation of the generated particles.
         """ 
-        self.particles = np.empty((self.num_particles, 2))
-        self.particles[:,0] = \
+        self.particles = np.empty(self.num_particles)
+        self.particles = \
             mean[0] + (np.random.randn(self.num_particles) * std[0])
-        self.particles[:,1] = \
-            mean[1] + (np.random.randn(self.num_particles) * std[1])
 
     def predict(
         self,
         u_input: np.ndarray
     ) -> None:
-        """ Move according to control input u (measured temperature)
+        """ Randomly generate a bunch of particles and
+        Move according to control input u (measured temperature)
         with input noise q (std measured temperature).
         q controls the spread of the generated particles.
-
+        
         Args:
             u_input (np.ndarray): input of the particle filter.
                 The input is a 2D array with the first column being the temperature
@@ -347,12 +343,9 @@ class ParticleFilter:
         self.u_input = u_input
         self.alpha = define_alpha(self.alpha)
         if self.particles is not None:
-            self.particles[:, 0] += \
+            self.particles += \
                 u_input[1] * self.alpha \
                 + (np.random.randn(self.num_particles) * self.q_process_noise[0])
-            # update delta Ta
-            self.particles[:, 1] += \
-                (np.random.randn(self.num_particles) * self.q_process_noise[1])
         else:
             raise ValueError('No particles found, please initialize the particles first.')
 
@@ -365,9 +358,9 @@ class ParticleFilter:
         with measurement noise r."""
         # compute likelihood of measurement
         if loading == 'tension':
-            distance = y_measurement - self.particles[:, 0]
+            distance = y_measurement - self.particles
         elif loading == 'compression':
-            distance = self.particles[:, 0] - y_measurement
+            distance = self.particles - y_measurement
         else:
             raise ValueError('Loading must be either "tension" or "compression"')
         if self.event_distribution is None:
@@ -382,43 +375,31 @@ class ParticleFilter:
         self
     ):
         """returns mean and variance of the weighted particles"""
-        pos = self.particles[:, 0]
+        pos = self.particles
         mean = np.average(pos, weights=self.weights, axis=0)
-        var  = np.average((pos - mean)**2, weights=self.weights, axis=0)
-        return mean, var
+        # var = np.average((pos - mean) ** 2, weights=self.weights, axis=0)
+        return mean #, var
 
     def simple_resample(
-        self,
-        loading='tension'
+        self
     ):
         """Discard highly improbable particle and replace them with copies of the more probable particles.
         Resample particles with replacement according to weights.
 
-        Args:
-            loading (str, optional): Loading type, has to be tension or comperssion.
-                Defaults to 'tension'.
         """
-        cumulative_sum = np.cumsum(self.weights)
+        cumulative_sum = np.cumsum(self.weights) #type: ignore
         # normalize the cumulative sum to be in [0, 1]
         cumulative_sum /= cumulative_sum[self.num_particles-1]
         randoms = np.random.rand(self.num_particles)
+
         # Choose the particle indices based on the cumulative sum
         indexes = np.searchsorted(cumulative_sum, randoms)
-        noise_scale = self.scale / np.abs(self.particles[indexes])
-        noise = np.random.exponential(
-            scale=noise_scale,
-            size=(self.num_particles, 2))
-        # resample the particles according to indexes and the noise that represents the loading type
-        if loading == 'compression':
-            self.particles[:] = self.particles[indexes] + noise
-        elif loading == 'tension':
-            self.particles[:] = self.particles[indexes] - noise
-        else:
-            raise ValueError('Loading must be either "tension" or "compression"')
+        self.particles[:] = self.particles[indexes]
+
         # keep the weights of the resampled particles
         self.weights[:] = self.weights[indexes]
         # normalize the weights
-        self.weights /= np.sum(self.weights)
+        self.weights /= np.sum(self.weights) #type: ignore
 
     def filter(
         self,
@@ -439,14 +420,14 @@ class ParticleFilter:
             np.ndarray: Filtered measurements.
         """
         if self.alpha is None:
-            self.alpha = learn_alpha(input, measurements)
+            self.alpha = learn_alpha(input[:,i], measurements)
         if loading not in ['tension', 'compression']:
             raise ValueError('Loading must be either "tension" or "compression"')
         predictions = np.zeros(len(measurements))
         for i, measurement in enumerate(measurements):
             self.predict(input[:,i])
             self.update(measurement, loading=loading)
-            self.simple_resample(loading=loading)
-            prediction, _ = self.estimate()
+            self.simple_resample()
+            prediction = self.estimate()
             predictions[i] = prediction
         return predictions
