@@ -5,11 +5,12 @@ as a temperature compensation method.
 Author: Maximillian Weil
 """
 import datetime
-from typing import List, Union, Mapping
+from typing import List, Mapping, Union
+
 import numpy as np
 
-from filter_tc.utils import preprocess_measurements, preprocess_inputs, learn_alpha, define_alpha
-
+from filter_tc.utils import (define_alpha, learn_alpha, preprocess_inputs,
+                             preprocess_measurements)
 
 SEP005_DEFAULT_FORMAT = '%Y-%m-%d %H:%M:%S%z'
 
@@ -42,11 +43,11 @@ class KalmanFilterBank(list):
         q_process_variance: Union[float, np.ndarray],  # Q
         r_measurement_variance: Union[float, np.ndarray],  # R
         a_matrix: np.ndarray = np.array([[1.0]]),
-        b_matrix: np.ndarray = np.array([[0.0]]),
+        b_matrix: np.ndarray = np.array([]),
         c_matrix: np.ndarray = np.array([[1.0]]),
         inputs:Union[dict, List[dict], None] = None,
         alpha:Union[float, List[float], None] = None,
-        posteri_state: np.ndarray = np.array([0]),
+        posteri_state: np.ndarray = np.array([]),
         posteri_error_covariance: np.ndarray = np.array([0]),
     ) -> List['KalmanFilter']:
         """Initialize a set of kalman filters from SEP005 compliant measurements.
@@ -62,6 +63,14 @@ class KalmanFilterBank(list):
         for i, measurement in enumerate(measurements):
             alpha_ = define_alpha(alpha, i, measurement, inputs)
 
+            
+            b_matrix = \
+                    np.array(
+                        [
+                            np.array([0, alpha_])
+                        ])
+            
+            posteri_state = np.array([np.array([measurement['data'][0]])])
 
             kalman_filter = KalmanFilter(
                 q_process_variance,
@@ -71,6 +80,7 @@ class KalmanFilterBank(list):
                 a_matrix,
                 b_matrix,
                 c_matrix,
+                name=measurement['name'],
             )
             if 'start_timestamp' in measurement:
                 if 'start_timestamp_format' in measurement:
@@ -213,7 +223,7 @@ class KalmanFilter:
             posteri_state: np.ndarray = np.array([0]),
             posteri_error_covariance: np.ndarray = np.array([0]),
             a_matrix: np.ndarray = np.array([[1.0]]),
-            b_matrix: np.ndarray = np.array([[0.0]]),
+            b_matrix: np.ndarray = np.array([]),
             c_matrix: np.ndarray = np.array([[1.0]]),
             alpha:Union[float, List[float], None] = None,
             name:Union[str,None] = None,
@@ -256,7 +266,7 @@ class KalmanFilter:
         # Measurement Update (Correction)
         # K = P_predicted * H.T * (H * P_predicted * H.T + R).inverse()
         check_matrix_multiplication(self.c_matrix, priori_error_covariance)
-        check_matrix_multiplication(priori_error_covariance, self.c_matrix)
+        check_matrix_multiplication(priori_error_covariance, self.c_matrix.T)
         innovation_covariance = \
             self.c_matrix @ priori_error_covariance @ self.c_matrix.T \
             + self.r_measurement_variance
@@ -294,5 +304,5 @@ class KalmanFilter:
                 measurement,
                 inputs[:,i].reshape(-1,1)
             )
-            filtered_data[i] = self.get_latest_estimated_state()
+            filtered_data[i] = self.get_latest_estimated_state()[0]
         return filtered_data
