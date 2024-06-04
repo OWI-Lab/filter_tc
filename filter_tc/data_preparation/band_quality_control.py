@@ -5,6 +5,7 @@ Author: Maximillian Weil
 """
 
 from typing import Union, List
+import pandas as pd
 import numpy as np
 from sdypy_sep005.sep005 import assert_sep005
 from filter_tc.utils import sep005_get_timestamps
@@ -68,14 +69,18 @@ class Sep005BandQualityControl:
         First calls `out_of_bound_detection` to mark out-of-bound data points as NaN.
         Then, it interpolates these NaN values based on neighboring data points, providing
         a continuous data set without abrupt gaps or spikes.
-        """      
+        """     
         self.out_of_bound_detection(**kwargs)
         nan_indices = np.where(np.isnan(self.quality_controlled_sep005["data"]))
-        self.quality_controlled_sep005["data"][nan_indices] = \
-            np.interp(
-                nan_indices,
-                np.where(~np.isnan(self.quality_controlled_sep005["data"]))[0],
-                self.quality_controlled_sep005["data"][~np.isnan(self.quality_controlled_sep005["data"])])
+        try:
+            self.quality_controlled_sep005["data"][nan_indices] = \
+                np.interp(
+                    nan_indices,
+                    np.where(~np.isnan(self.quality_controlled_sep005["data"]))[0],
+                    self.quality_controlled_sep005["data"][~np.isnan(self.quality_controlled_sep005["data"])])
+        except:
+            print('forward fill')
+            self.quality_controlled_sep005["data"] = pd.Series(self.quality_controlled_sep005["data"]).fillna(method='ffill').values
         assert_sep005(self.quality_controlled_sep005)
         
     def out_of_bound_removal(self, **kwargs):

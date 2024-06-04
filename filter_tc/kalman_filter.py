@@ -263,6 +263,7 @@ class KalmanFilter:
         check_matrix_multiplication(self.posteri_error_covariance, self.a_matrix)
         priori_error_covariance = \
             self.a_matrix @ self.posteri_error_covariance @ self.a_matrix.T + self.q_process_variance #type: ignore
+        
         # Measurement Update (Correction)
         # K = P_predicted * H.T * (H * P_predicted * H.T + R).inverse()
         check_matrix_multiplication(self.c_matrix, priori_error_covariance)
@@ -304,5 +305,5 @@ class KalmanFilter:
                 measurement,
                 inputs[:,i].reshape(-1,1)
             )
-            filtered_data[i] = self.get_latest_estimated_state()[0]
+            filtered_data[i] = self.get_latest_estimated_state()[0] # type: ignore
         return filtered_data

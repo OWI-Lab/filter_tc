@@ -2,6 +2,7 @@ from typing import Union, List
 import numpy as np
 import warnings
 import datetime
+import pandas as pd
 from sdypy_sep005.sep005 import assert_sep005
 from sklearn.linear_model import LinearRegression
 
@@ -128,7 +129,7 @@ def define_alpha(
         alpha_ = alpha[i]
         i += 1
     elif alpha is None and inputs is not None: # Learn alpha from the data if no alpha is given
-        alpha_ = learn_alpha(inputs['data'].reshape(-1, 1), measurement['data']) #type: ignore
+        alpha_ = learn_alpha(inputs['data'], measurement['data']) #type: ignore
     else: # Constant alpha for all measurements
         alpha_ = 1.0
         warnings.warn('No alpha and no input given, using default value of 1.0')
@@ -150,6 +151,14 @@ def learn_alpha(
         float: alpha parameter of the particle filter.
     """
     linregr = LinearRegression()
-    linregr.fit(temperature_input, strain_measurement)
+    # remove Nan values
+    # Create a DataFrame for convenience
+    data = pd.DataFrame({'X': temperature_input, 'Y': strain_measurement}, index = range(len(temperature_input)))
+    # Drop rows with any NaNs
+    data_cleaned = data.dropna()
+    # Extract cleaned X and y
+    X_cleaned = data_cleaned['X'].values
+    y_cleaned = data_cleaned['Y'].values
+    linregr.fit(X_cleaned.reshape(-1, 1), y_cleaned)
     alpha = linregr.coef_[0]
     return alpha
