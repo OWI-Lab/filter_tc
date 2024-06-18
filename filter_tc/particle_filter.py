@@ -168,14 +168,7 @@ class ParticleFilterBank(list):
 
             states[sensor] = collected_states[sensor]
 
-            particle_filter = ParticleFilter(**states[sensor]) # Using the dict as the input for the particle filters
-
-            # Check for nan values in particles and handle them
-            if np.all(np.isnan(particle_filter.particles)):
-                mean = np.array([collected_states[sensor]['u_input'][0] * collected_states[sensor]['alpha'], 0])
-                std = np.array([0.1, 0.1])
-                particle_filter.create_gaussian_particles(mean, std)
-            
+            particle_filter = ParticleFilter(**states[sensor]) # Using the dict as the input for the particle filters            
             particle_filters.append(particle_filter)
         return cls(particle_filters)
 
@@ -232,13 +225,23 @@ class ParticleFilterBank(list):
         )
         filter_outputs = []
         for measurement in measurements:
+
             particle_filter = self[measurement['name']]
-            if particle_filter is not None:
-                filtered = particle_filter.filter(
-                    measurement['data'],
-                    filter_inputs, #type: ignore
-                    loading
-                )
+            if self[measurement['name']] is not None:
+                if np.all(np.isnan(self[measurement['name']].particles)):
+                    mean = np.array([measurement['data'][0], 0])
+                    std = np.array([0.1, 0.1])
+                    self[measurement['name']].create_gaussian_particles(mean, std)
+                if np.all(np.isnan(measurement['data'])):
+                    warnings.warn(f'Measurement {measurement["name"]} contains only NaNs')
+                    filtered = np.full(len(measurement['data']), np.nan)
+                    self[measurement['name']].particles = np.full(self[measurement['name']].num_particles, np.nan)
+                else:
+                    filtered = self[measurement['name']].filter(
+                        measurement['data'],
+                        filter_inputs, #type: ignore
+                        loading
+                    )
             else:
                 raise ValueError(f'No particle filter with name "{measurement["name"]}" in {str(self)}')
             filtered_data = measurement.copy()
@@ -370,27 +373,18 @@ class ParticleFilter:
                 and the second column being the delta_temperature.
         """
         # update Ta
-        if np.any(u_input.isnan()):
+        if np.any(np.isnan(u_input)):
             warnings.warn('Input contains NaN values, please preprocess the input first.')
-            u_input = np.zeros(len(u_input))
+            u_input = np.nan_to_num(u_input)
         self.u_input = u_input
 
         self.alpha = define_alpha(self.alpha)
-        # if particles are nan, initialize them
-        #self.particles = self.particles[~np.isnan(self.particles)]   
         if self.particles is not None:
             self.particles += \
                 u_input[1] * self.alpha \
                 + (np.random.randn(self.num_particles) * self.q_process_noise[0])
         elif self.particles is None:
             raise ValueError('No particles found, please initialize the particles first.')
-        #print('Particles:', len(self.particles), 'nan Particles', len(self.particles[np.isnan(self.particles)]))
-
-        # if len(self.particles) != self.num_particles:
-        #     # Add new particles using the mean the number of particles is not equal to the number of particles
-        #     new_particles = np.ones(self.num_particles - len(self.particles)) * np.mean(self.particles) \
-        #         + (np.random.randn(self.num_particles - len(self.particles)) * self.q_process_noise[0])
-        #     self.particles = np.append(self.particles, new_particles)
 
     def update(
         self,
@@ -400,16 +394,11 @@ class ParticleFilter:
         """ Incorporate measurement y (measured strain)
         with measurement noise r."""
         # compute likelihood of measurement
-        if loading == 'tension':
-            distance = y_measurement - self.particles
-        elif loading == 'compression':
-            distance = self.particles - y_measurement
-        else:
-            raise ValueError('Loading must be either "tension" or "compression"')
+        distance = y_measurement - self.particles if loading == 'tension' else self.particles - y_measurement
         if self.event_distribution is None:
             raise ValueError('No event distribution found, please initialize the event distribution first.')
-        else:
-            self.weights *= \
+        # update weights
+        self.weights *= \
                 self.event_distribution.pdf(distance) #self.np_event_distribution.pdf(distance)
         self.weights += 1.e-300      # avoid round-off to zero
         self.weights /= sum(self.weights) # normalize
